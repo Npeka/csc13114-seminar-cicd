@@ -1,6 +1,9 @@
 # Multi-stage build for NestJS application
 FROM node:18-alpine AS builder
 
+# Enable corepack and activate pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
 # Set working directory
 WORKDIR /app
 
@@ -9,6 +12,7 @@ COPY package.json pnpm-lock.yaml ./
 
 # Enable corepack and activate pnpm, then install all deps (including dev) using pnpm
 # corepack is included in modern Node images; prepare/activate pnpm to ensure it's available
+
 RUN corepack enable \
   && corepack prepare pnpm@latest --activate \
   && pnpm install --frozen-lockfile
