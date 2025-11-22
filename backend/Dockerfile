@@ -1,64 +1,57 @@
-# Multi-stage build for NestJS application
-FROM node:18-alpine AS builder
+# ---- Base image với pnpm qua corepack ----
+FROM node:18-alpine AS base
 
-# Enable corepack and activate pnpm
+# Bật corepack và kích hoạt pnpm
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
-# Set working directory
+# ---- Builder stage: build NestJS app ----
+FROM base AS builder
+
 WORKDIR /app
 
-# Copy package files and pnpm lockfile (required for reproducible installs)
+# Copy file lock + package để install nhanh và cache tốt
 COPY package.json pnpm-lock.yaml ./
 
-# Enable corepack and activate pnpm, then install all deps (including dev) using pnpm
-# corepack is included in modern Node images; prepare/activate pnpm to ensure it's available
+# Cài toàn bộ dependency (dev + prod)
+RUN pnpm install --frozen-lockfile
 
-RUN corepack enable \
-  && corepack prepare pnpm@latest --activate \
-  && pnpm install --frozen-lockfile
-
-# Copy source code and build config
-COPY src/ src/
+# Copy source & config cần thiết
 COPY tsconfig*.json ./
 COPY nest-cli.json ./
+COPY src ./src
 
-# Build the application with pnpm
+# Build Nest
 RUN pnpm run build
 
-# Production stage
-FROM node:18-alpine AS production
+# ---- Production stage ----
+FROM base AS production
 
-# Create app directory
 WORKDIR /app
+ENV NODE_ENV=production
 
-# Install dumb-init for proper signal handling
+# Cài dumb-init để xử lý signal (cho đẹp)
 RUN apk add --no-cache dumb-init
 
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nestjs -u 1001
+# Tạo user non-root
+RUN addgroup -g 1001 -S nodejs \
+  && adduser -S nestjs -u 1001
 
-# Copy package files and pnpm lockfile for production installs
+# Copy package + lockfile để install prod deps
 COPY package.json pnpm-lock.yaml ./
 
-# Enable corepack and activate pnpm, then install only production deps
-RUN corepack enable \
-  && corepack prepare pnpm@latest --activate \
-  && pnpm install --frozen-lockfile --prod
+# Cài chỉ production dependencies
+RUN pnpm install --frozen-lockfile --prod
 
-# Copy built application from builder stage
+# Copy build output từ builder
 COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
 
-# Switch to non-root user
 USER nestjs
 
-# Expose port
 EXPOSE 8000
 
-# Health check (use JSON form to avoid Dockerfile parsing issues)
+# Healthcheck đơn giản
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD ["node","-e","const http = require('http'); const options = { host: 'localhost', port: 8000, path: '/api/health', timeout: 2000 }; const request = http.request(options, (res) => { if (res.statusCode === 200) process.exit(0); else process.exit(1); }); request.on('error', () => process.exit(1)); request.end();"]
+  CMD node -e "const http=require('http');const opt={host:'localhost',port:8000,path:'/api/health',timeout:2000};const r=http.request(opt,res=>{process.exit(res.statusCode===200?0:1)});r.on('error',()=>process.exit(1));r.end();"
 
-# Start the application
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "dist/main.js"]
