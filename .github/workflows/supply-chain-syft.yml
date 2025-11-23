@@ -10,9 +10,14 @@ permissions:
   contents: read
   actions: read
   security-events: write
+  # cần để deploy GitHub Pages
+  pages: write
+  # cần cho actions/deploy-pages
+  id-token: write
 
 jobs:
   generate_sbom_and_scan:
+    # Chỉ chạy nếu workflow build/push images success
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
@@ -35,7 +40,7 @@ jobs:
       - name: Install Syft
         uses: anchore/sbom-action/download-syft@v0.17.3
 
-      # 2) Generate SBOM cho frontend
+      # 2) Generate SBOM cho frontend (SPDX JSON)
       - name: Generate SBOM (frontend)
         env:
           IMAGE_PREFIX: docker.io/${{ secrets.DOCKERHUB_USERNAME }}
@@ -44,7 +49,7 @@ jobs:
             $IMAGE_PREFIX/csc13114-frontend:$IMAGE_TAG \
             -o spdx-json > sbom-frontend.spdx.json
 
-      # 3) Generate SBOM cho backend
+      # 3) Generate SBOM cho backend (SPDX JSON)
       - name: Generate SBOM (backend)
         env:
           IMAGE_PREFIX: docker.io/${{ secrets.DOCKERHUB_USERNAME }}
@@ -53,25 +58,27 @@ jobs:
             $IMAGE_PREFIX/csc13114-backend:$IMAGE_TAG \
             -o spdx-json > sbom-backend.spdx.json
 
-      # 4) Trivy scan: frontend image (fail nếu HIGH/CRITICAL)
+      # 4) Trivy scan: frontend image (fail nếu HIGH/CRITICAL, lưu thêm report table)
       - name: Trivy scan (frontend image)
         uses: aquasecurity/trivy-action@0.24.0
         with:
           image-ref: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/csc13114-frontend:${{ env.IMAGE_TAG }}
           severity: HIGH,CRITICAL
           format: table
+          output: trivy-frontend-table.txt
           exit-code: "1"
 
-      # 5) Trivy scan: backend image (fail nếu HIGH/CRITICAL)
+      # 5) Trivy scan: backend image (fail nếu HIGH/CRITICAL, lưu thêm report table)
       - name: Trivy scan (backend image)
         uses: aquasecurity/trivy-action@0.24.0
         with:
           image-ref: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/csc13114-backend:${{ env.IMAGE_TAG }}
           severity: HIGH,CRITICAL
           format: table
+          output: trivy-backend-table.txt
           exit-code: "1"
 
-      # 6) Trivy SARIF report (frontend)
+      # 6) Trivy SARIF report (frontend) để push lên Code Scanning
       - name: Trivy SARIF (frontend)
         uses: aquasecurity/trivy-action@0.24.0
         with:
@@ -110,14 +117,15 @@ jobs:
         uses: princespaghetti/setup-conftest@v1
 
       - name: Run Conftest policies on SBOM
+        # Lưu output dạng table ra file để render vào HTML
         run: |
           conftest test \
             sbom-frontend.spdx.json \
             sbom-backend.spdx.json \
             -p policy \
-            -o table
+            -o table | tee conftest-sbom-table.txt
 
-      # 10) Upload SBOM artifacts
+      # 10) Upload SBOM artifacts (giữ lại file JSON thô)
       - name: Upload SBOM artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -125,3 +133,123 @@ jobs:
           path: |
             sbom-frontend.spdx.json
             sbom-backend.spdx.json
+
+      # 11) Tạo static site cho các report (SBOM / Trivy / Conftest)
+      - name: Prepare supply chain reports site
+        run: |
+          mkdir -p site/sbom site/trivy site/policy
+
+          # Copy SBOM JSON để có thể tải/xem trực tiếp
+          cp sbom-frontend.spdx.json site/sbom/
+          cp sbom-backend.spdx.json site/sbom/
+
+          # Tạo HTML cho Trivy frontend
+          cat > site/trivy/frontend.html << 'EOF'
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <title>Trivy report - frontend image</title>
+          </head>
+          <body>
+            <h1>Trivy report - frontend image</h1>
+            <pre>
+          EOF
+          cat trivy-frontend-table.txt >> site/trivy/frontend.html
+          cat >> site/trivy/frontend.html << 'EOF'
+            </pre>
+          </body>
+          </html>
+          EOF
+
+          # Tạo HTML cho Trivy backend
+          cat > site/trivy/backend.html << 'EOF'
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <title>Trivy report - backend image</title>
+          </head>
+          <body>
+            <h1>Trivy report - backend image</h1>
+            <pre>
+          EOF
+          cat trivy-backend-table.txt >> site/trivy/backend.html
+          cat >> site/trivy/backend.html << 'EOF'
+            </pre>
+          </body>
+          </html>
+          EOF
+
+          # Tạo HTML cho kết quả Conftest
+          cat > site/policy/conftest.html << 'EOF'
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <title>Conftest policy results</title>
+          </head>
+          <body>
+            <h1>Conftest policy results on SBOM</h1>
+            <pre>
+          EOF
+          cat conftest-sbom-table.txt >> site/policy/conftest.html
+          cat >> site/policy/conftest.html << 'EOF'
+            </pre>
+          </body>
+          </html>
+          EOF
+
+          # Trang index đơn giản để điều hướng
+          cat > site/index.html << 'EOF'
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <title>Supply chain reports</title>
+          </head>
+          <body>
+            <h1>Supply chain reports</h1>
+            <ul>
+              <li><a href="sbom/sbom-frontend.spdx.json">SBOM - frontend (SPDX JSON)</a></li>
+              <li><a href="sbom/sbom-backend.spdx.json">SBOM - backend (SPDX JSON)</a></li>
+              <li><a href="trivy/frontend.html">Trivy scan - frontend image</a></li>
+              <li><a href="trivy/backend.html">Trivy scan - backend image</a></li>
+              <li><a href="policy/conftest.html">Conftest policy results</a></li>
+            </ul>
+          </body>
+          </html>
+          EOF
+
+          # In cấu trúc site để debug
+          ls -R site
+
+      # 12) Upload static site làm Pages artifact
+      - name: Upload supply chain reports Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  # Job deploy static site lên GitHub Pages
+  deploy_supply_chain_reports:
+    name: Deploy supply chain reports to GitHub Pages
+    needs: generate_sbom_and_scan
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Print supply chain report URLs
+        run: |
+          echo "Supply chain reports base URL: ${{ steps.deployment.outputs.page_url }}"
+          echo "SBOM (frontend):   ${{ steps.deployment.outputs.page_url }}sbom/sbom-frontend.spdx.json"
+          echo "SBOM (backend):    ${{ steps.deployment.outputs.page_url }}sbom/sbom-backend.spdx.json"
+          echo "Trivy frontend:    ${{ steps.deployment.outputs.page_url }}trivy/frontend.html"
+          echo "Trivy backend:     ${{ steps.deployment.outputs.page_url }}trivy/backend.html"
+          echo "Conftest results:  ${{ steps.deployment.outputs.page_url }}policy/conftest.html"

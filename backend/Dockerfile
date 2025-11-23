@@ -54,7 +54,7 @@ EXPOSE 8000
 
 # Healthcheck đơn giản
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "const http=require('http');const opt={host:'localhost',port:8000,path:'/api/health',timeout:2000};const r=http.request(opt,res=>{process.exit(res.statusCode===200?0:1)});r.on('error',()=>process.exit(1));r.end();"
+  CMD node -e "const http=require('http');const opt={host:'localhost',port:8000,path:'/',timeout:2000};const r=http.request(opt,res=>{process.exit(res.statusCode===200?0:1)});r.on('error',()=>process.exit(1));r.end();"
 
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "dist/main.js"]
