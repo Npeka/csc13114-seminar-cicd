@@ -83,11 +83,5 @@
         "statements": 80
       }
     }
-  },
-  "pnpm": {
-    "overrides": {
-      "cross-spawn": "7.0.5",
-      "test-exclude": "7.0.1"
-    }
   }
 }
