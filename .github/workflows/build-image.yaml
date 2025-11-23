@@ -38,6 +38,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
       - name: Build and Push ${{ matrix.service }} image
+        id: build_image
         env:
           IMAGE_PREFIX: ${{ env.REGISTRY }}/${{ secrets.DOCKERHUB_USERNAME }}
         uses: docker/build-push-action@v6
@@ -53,6 +54,7 @@ jobs:
         env:
           IMAGE_PREFIX: ${{ env.REGISTRY }}/${{ secrets.DOCKERHUB_USERNAME }}
           COSIGN_EXPERIMENTAL: "1"
+          COSIGN_YES: "true"
         run: |
           cosign sign \
             $IMAGE_PREFIX/${{ matrix.image_name }}:${{ env.IMAGE_TAG }}
