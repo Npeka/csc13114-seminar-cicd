@@ -133,14 +133,15 @@ jobs:
 
       - name: Prepare coverage site
         run: |
-          mkdir -p site/backend site/frontend
+          # Đặt mọi report dưới prefix /coverage
+          mkdir -p site/coverage/backend site/coverage/frontend
           # Backend: Jest HTML report nằm trong lcov-report/
           if [ -d "backend-coverage/lcov-report" ]; then
-            cp -r backend-coverage/lcov-report/* site/backend/
+            cp -r backend-coverage/lcov-report/* site/coverage/backend/
           fi
           # Frontend: xử lý tương tự nếu có coverage
           if [ -d "frontend-coverage/lcov-report" ]; then
-            cp -r frontend-coverage/lcov-report/* site/frontend/
+            cp -r frontend-coverage/lcov-report/* site/coverage/frontend/
           fi
           # In cấu trúc thư mục site để debug nếu cần
           ls -R site
@@ -169,6 +170,6 @@ jobs:
 
       - name: Print coverage URLs
         run: |
-          echo "Coverage base URL: ${{ steps.deployment.outputs.page_url }}"
-          echo "Backend coverage report: ${{ steps.deployment.outputs.page_url }}backend/"
-          echo "Frontend coverage report: ${{ steps.deployment.outputs.page_url }}frontend/"
+          echo "Coverage base URL: ${{ steps.deployment.outputs.page_url }}coverage/"
+          echo "Backend coverage report: ${{ steps.deployment.outputs.page_url }}coverage/backend/"
+          echo "Frontend coverage report: ${{ steps.deployment.outputs.page_url }}coverage/frontend/"
