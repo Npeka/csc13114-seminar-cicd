@@ -2,7 +2,7 @@ name: Supply Chain - SBOM (Syft)
 
 on:
   workflow_run:
-    workflows: ["Build Docker Images and Push to Registry"]
+    workflows: ["Build and Push Images"]
     types: [completed]
     branches: [main]
 
