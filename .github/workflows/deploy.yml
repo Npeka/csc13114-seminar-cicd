@@ -9,26 +9,31 @@ on:
 permissions:
   contents: read
   actions: read
+  security-events: write
 
 jobs:
   deploy:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: http://68.183.238.28
 
     steps:
       - name: Deploy via SSH to Droplet
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@v1.2.2
+        env:
+          IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
         with:
           host: ${{ secrets.DO_SSH_HOST }}
           username: ${{ secrets.DO_SSH_USER }}
           key: ${{ secrets.DO_SSH_KEY }}
           port: 22
+          envs: IMAGE_TAG
           script: |
             set -e
 
             cd /opt/csc13114-seminar-cicd
-
-            export IMAGE_TAG=${{ github.event.workflow_run.head_sha }}
 
             echo "Using IMAGE_TAG=$IMAGE_TAG"
 
