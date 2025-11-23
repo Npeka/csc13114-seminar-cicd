@@ -1,4 +1,4 @@
-name: Supply Chain - SBOM (Syft)
+name: Supply Chain - SBOM, Scan & Policy
 
 on:
   workflow_run:
@@ -6,8 +6,12 @@ on:
     types: [completed]
     branches: [main]
 
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
-  generate_sbom:
+  generate_sbom_and_scan:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
@@ -17,22 +21,20 @@ jobs:
       IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
 
     steps:
-      # 1. Checkout repo (nếu cần đọc file / policy)
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Login Docker Hub để pull image
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      # 3. Install Syft
+      # 1) Install Syft
       - name: Install Syft
         uses: anchore/sbom-action/download-syft@v0.17.3
 
-      # 4. Generate SBOM cho frontend
+      # 2) Generate SBOM cho frontend
       - name: Generate SBOM (frontend)
         env:
           IMAGE_PREFIX: docker.io/${{ secrets.DOCKERHUB_USERNAME }}
@@ -41,7 +43,7 @@ jobs:
             $IMAGE_PREFIX/csc13114-frontend:$IMAGE_TAG \
             -o spdx-json > sbom-frontend.spdx.json
 
-      # 5. Generate SBOM cho backend
+      # 3) Generate SBOM cho backend
       - name: Generate SBOM (backend)
         env:
           IMAGE_PREFIX: docker.io/${{ secrets.DOCKERHUB_USERNAME }}
@@ -50,7 +52,65 @@ jobs:
             $IMAGE_PREFIX/csc13114-backend:$IMAGE_TAG \
             -o spdx-json > sbom-backend.spdx.json
 
-      # 6. Upload SBOM artifacts
+      # 4) Trivy scan: frontend image (fail nếu HIGH/CRITICAL)
+      - name: Trivy scan (frontend image)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/csc13114-frontend:${{ env.IMAGE_TAG }}
+          severity: HIGH,CRITICAL
+          format: table
+          exit-code: "1"
+
+      # 5) Trivy scan: backend image (fail nếu HIGH/CRITICAL)
+      - name: Trivy scan (backend image)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/csc13114-backend:${{ env.IMAGE_TAG }}
+          severity: HIGH,CRITICAL
+          format: table
+          exit-code: "1"
+
+      # 6) Trivy SARIF report (frontend)
+      - name: Trivy SARIF (frontend)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/csc13114-frontend:${{ env.IMAGE_TAG }}
+          format: sarif
+          output: trivy-frontend.sarif
+          severity: HIGH,CRITICAL
+          exit-code: "0" # không fail job ở bước tạo SARIF
+
+      # 7) Trivy SARIF (backend)
+      - name: Trivy SARIF (backend)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/csc13114-backend:${{ env.IMAGE_TAG }}
+          format: sarif
+          output: trivy-backend.sarif
+          severity: HIGH,CRITICAL
+          exit-code: "0"
+
+      # 8) Upload SARIF vào GitHub Code Scanning
+      - name: Upload Trivy SARIF to GitHub
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: |
+            trivy-frontend.sarif
+            trivy-backend.sarif
+
+      # 9) Policy-as-code với Conftest trên SBOM
+      - name: Setup Conftest
+        uses: princespaghetti/setup-conftest@v1
+
+      - name: Run Conftest policies on SBOM
+        run: |
+          conftest test \
+            sbom-frontend.spdx.json \
+            sbom-backend.spdx.json \
+            -p policy \
+            -o table
+
+      # 10) Upload SBOM artifacts
       - name: Upload SBOM artifacts
         uses: actions/upload-artifact@v4
         with:
