@@ -1,5 +1,5 @@
 # ---- Base image với pnpm qua corepack ----
-FROM node:18-alpine AS base
+FROM node:20-alpine AS base
 
 # Bật corepack và kích hoạt pnpm
 RUN corepack enable && corepack prepare pnpm@latest --activate
