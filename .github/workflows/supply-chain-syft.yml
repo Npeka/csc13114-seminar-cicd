@@ -10,10 +10,6 @@ permissions:
   contents: read
   actions: read
   security-events: write
-  # cần để deploy GitHub Pages
-  pages: write
-  # cần cho actions/deploy-pages
-  id-token: write
 
 jobs:
   generate_sbom_and_scan:
@@ -144,8 +140,8 @@ jobs:
             sbom-frontend.spdx.json
             sbom-backend.spdx.json
 
-      # 11) Tạo static site cho các report (SBOM / Trivy / Conftest)
-      - name: Prepare supply chain reports site
+      # 11) Tạo cấu trúc "site" cho report (để sau này có thể gom vào Pages nếu muốn)
+      - name: Prepare supply chain reports site structure
         if: always()
         run: |
           mkdir -p site/sbom site/trivy site/policy
@@ -211,7 +207,7 @@ jobs:
           </html>
           EOF
 
-          # Trang index đơn giản để điều hướng
+          # Trang index đơn giản để điều hướng (dùng khi sau này copy vào Pages)
           cat > site/index.html << 'EOF'
           <!doctype html>
           <html lang="en">
@@ -235,35 +231,10 @@ jobs:
           # In cấu trúc site để debug
           ls -R site
 
-      # 12) Upload static site làm Pages artifact
-      - name: Upload supply chain reports Pages artifact
+      # 12) Upload folder site/ như artifact (không deploy Pages)
+      - name: Upload supply chain reports artifact
         if: always()
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
+          name: supply-chain-reports
           path: site
-
-  # Job deploy static site lên GitHub Pages
-  deploy_supply_chain_reports:
-    name: Deploy supply chain reports to GitHub Pages
-    needs: generate_sbom_and_scan
-    runs-on: ubuntu-latest
-    # Luôn chạy sau generate_sbom_and_scan (kể cả khi job đó fail),
-    # nhưng chỉ khi workflow build/push ban đầu là success
-    if: always() && github.event.workflow_run.conclusion == 'success'
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-
-      - name: Print supply chain report URLs
-        run: |
-          echo "Supply chain reports base URL: ${{ steps.deployment.outputs.page_url }}"
-          echo "SBOM (frontend):   ${{ steps.deployment.outputs.page_url }}sbom/sbom-frontend.spdx.json"
-          echo "SBOM (backend):    ${{ steps.deployment.outputs.page_url }}sbom/sbom-backend.spdx.json"
-          echo "Trivy frontend:    ${{ steps.deployment.outputs.page_url }}trivy/frontend.html"
-          echo "Trivy backend:     ${{ steps.deployment.outputs.page_url }}trivy/backend.html"
-          echo "Conftest results:  ${{ steps.deployment.outputs.page_url }}policy/conftest.html"

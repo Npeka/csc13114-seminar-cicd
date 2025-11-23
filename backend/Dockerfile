@@ -24,10 +24,17 @@ COPY src ./src
 RUN pnpm run build
 
 # ---- Production stage ----
-FROM base AS production
+FROM node:20-alpine AS production
 
 WORKDIR /app
 ENV NODE_ENV=production
+
+# Bật corepack để vẫn dùng được pnpm nếu cần (nhưng chủ yếu để nhất quán)
+RUN corepack enable && corepack prepare pnpm@latest --activate \
+  # ❗ XÓA npm + npx để không còn cross-spawn/glob global từ npm
+  && rm -rf /usr/local/lib/node_modules/npm \
+           /usr/local/bin/npm \
+           /usr/local/bin/npx
 
 # Cài dumb-init để xử lý signal (cho đẹp)
 RUN apk add --no-cache dumb-init
@@ -36,15 +43,10 @@ RUN apk add --no-cache dumb-init
 RUN addgroup -g 1001 -S nodejs \
   && adduser -S nestjs -u 1001
 
-  # Copy package + lockfile để install prod deps
-COPY package.json pnpm-lock.yaml ./
-
-# Cài chỉ production dependencies
-RUN pnpm install --frozen-lockfile --prod
-
-# Copy build output từ builder
-
+# Copy node_modules đã prune prod + dist từ builder
+COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
+COPY package.json ./package.json
 
 USER nestjs
 
