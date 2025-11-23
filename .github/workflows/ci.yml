@@ -1,6 +1,7 @@
 name: CI Lint, Test and Typecheck
 
 on:
+  # Chạy pipeline khi có PR hoặc push lên branch develop
   pull_request:
     branches: [develop]
   push:
@@ -8,12 +9,17 @@ on:
 
 permissions:
   contents: read
+  # quyền ghi GitHub Pages để deploy static site
+  pages: write
+  # cần cho actions/deploy-pages
+  id-token: write
 
 jobs:
   backend:
     name: Backend - lint, test, coverage, typecheck
     runs-on: ubuntu-latest
 
+    # Mặc định mọi lệnh `run:` trong job này chạy trong thư mục backend
     defaults:
       run:
         working-directory: backend
@@ -27,9 +33,11 @@ jobs:
         with:
           node-version: "18"
 
+      # Bật corepack và chuẩn bị pnpm phiên bản mới nhất
       - name: Install pnpm
         run: corepack enable && corepack prepare pnpm@latest --activate
 
+      # Cài dependency cho backend, dùng lockfile để đảm bảo reproducible
       - name: Install backend dependencies
         run: pnpm install --frozen-lockfile
 
@@ -39,10 +47,12 @@ jobs:
       - name: Typecheck backend (tsc --noEmit)
         run: pnpm exec tsc --noEmit
 
+      # Jest sẽ chạy test + kiểm tra coverage threshold
       - name: Run backend tests with coverage
         run: pnpm run test:cov
 
-      - name: Upload backend coverage
+      # Luôn upload coverage kể cả khi test fail để có log xem lại
+      - name: Upload backend coverage artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -50,9 +60,10 @@ jobs:
           path: backend/coverage
 
   frontend:
-    name: Frontend - lint, typecheck, tests (if present)
+    name: Frontend - lint, typecheck, tests with coverage (if present)
     runs-on: ubuntu-latest
 
+    # Mặc định lệnh `run:` trong job này chạy trong thư mục frontend
     defaults:
       run:
         working-directory: frontend
@@ -74,21 +85,84 @@ jobs:
       - name: Lint frontend
         run: npm run lint
 
+      # Nếu project không dùng TS, sẽ fallback sang build để đảm bảo script hoạt động
       - name: Typecheck frontend (tsc --noEmit, fallback build nếu không có TS)
         run: npx tsc --noEmit || npm run build
 
-      - name: Run frontend tests if present
+      - name: Run frontend tests with coverage if present
         shell: bash
         run: |
+          # Chỉ chạy test nếu package.json có script "test"
           if jq -e '.scripts.test' package.json >/dev/null; then
-            npm test
+            # Thêm --coverage để Jest tạo báo cáo coverage HTML
+            npm test -- --coverage
           else
             echo "No frontend tests defined"
           fi
 
-      - name: Upload frontend coverage (if generated)
+      # Không fail job nếu chưa có thư mục coverage (ví dụ không có test)
+      - name: Upload frontend coverage artifact (if generated)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: frontend-coverage
           path: frontend/coverage
+          if-no-files-found: ignore
+
+  # Gom coverage backend + frontend thành một site tĩnh
+  prepare-coverage-site:
+    name: Prepare combined coverage site
+    # Chỉ chạy sau khi cả backend và frontend xong
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    # Chỉ chuẩn bị site khi là push, tránh deploy cho PR
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Download backend coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend-coverage
+
+      - name: Download frontend coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend-coverage
+
+      - name: Prepare coverage site
+        run: |
+          mkdir -p site/backend site/frontend
+          # Backend: Jest HTML report nằm trong lcov-report/
+          if [ -d "backend-coverage/lcov-report" ]; then
+            cp -r backend-coverage/lcov-report/* site/backend/
+          fi
+          # Frontend: xử lý tương tự nếu có coverage
+          if [ -d "frontend-coverage/lcov-report" ]; then
+            cp -r frontend-coverage/lcov-report/* site/frontend/
+          fi
+          # In cấu trúc thư mục site để debug nếu cần
+          ls -R site
+
+      # Upload thư mục site/ để job deploy-pages dùng
+      - name: Upload coverage Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  # Deploy site/ lên GitHub Pages để xem coverage dưới dạng web tĩnh
+  deploy-coverage:
+    name: Deploy coverage to GitHub Pages
+    needs: prepare-coverage-site
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    environment:
+      name: github-pages
+      # GitHub sẽ tự điền URL site ở đây, xem trong tab Actions
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
