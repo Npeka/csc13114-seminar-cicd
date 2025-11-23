@@ -2,7 +2,7 @@ name: Deploy Application
 
 on:
   workflow_run:
-    workflows: ["Supply Chain - SBOM (Syft)"]
+    workflows: ["Supply Chain - SBOM, Scan & Policy"]
     types: [completed]
     branches: [main]
 
