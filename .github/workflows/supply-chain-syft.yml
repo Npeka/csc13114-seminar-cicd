@@ -90,13 +90,16 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: "0"
 
-      # 8) Upload SARIF vào GitHub Code Scanning
-      - name: Upload Trivy SARIF to GitHub
-        uses: github/codeql-action/upload-sarif@v3
+      # 8) Upload Trivy SARIF (frontend) vào GitHub Code Scanning
+      - name: Upload Trivy SARIF (frontend) to GitHub
+        uses: github/codeql-action/upload-sarif@v4
         with:
-          sarif_file: |
-            trivy-frontend.sarif
-            trivy-backend.sarif
+          sarif_file: trivy-frontend.sarif
+
+      - name: Upload Trivy SARIF (backend) to GitHub
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-backend.sarif
 
       # 9) Policy-as-code với Conftest trên SBOM
       - name: Setup Conftest
