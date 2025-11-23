@@ -1,7 +1,8 @@
 package main
 
-deny[msg] {
-  input.services[svc].image == img
+deny contains msg if {
+  some svc
+  img := input.services[svc].image
   endswith(img, ":latest")
-  msg := sprintf("Service %s uses 'latest' tag 'latest', not allowed", [svc])
+  msg := sprintf("Service %s uses 'latest' tag, not allowed", [svc])
 }
