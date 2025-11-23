@@ -17,6 +17,7 @@ permissions:
 
 jobs:
   generate_sbom_and_scan:
+    name: Generate SBOM, Scan Images, and Policy-as-Code
     # Chỉ chạy nếu workflow build/push images success
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
@@ -66,6 +67,7 @@ jobs:
           severity: HIGH,CRITICAL
           format: table
           output: trivy-frontend-table.txt
+          # Nếu có HIGH/CRITICAL → step này fail (gate)
           exit-code: "1"
 
       # 5) Trivy scan: backend image (fail nếu HIGH/CRITICAL, lưu thêm report table)
@@ -76,10 +78,12 @@ jobs:
           severity: HIGH,CRITICAL
           format: table
           output: trivy-backend-table.txt
+          # Nếu có HIGH/CRITICAL → step này fail (gate)
           exit-code: "1"
 
       # 6) Trivy SARIF report (frontend) để push lên Code Scanning
       - name: Trivy SARIF (frontend)
+        if: always()
         uses: aquasecurity/trivy-action@0.24.0
         with:
           image-ref: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/csc13114-frontend:${{ env.IMAGE_TAG }}
@@ -90,6 +94,7 @@ jobs:
 
       # 7) Trivy SARIF (backend)
       - name: Trivy SARIF (backend)
+        if: always()
         uses: aquasecurity/trivy-action@0.24.0
         with:
           image-ref: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/csc13114-backend:${{ env.IMAGE_TAG }}
@@ -100,6 +105,7 @@ jobs:
 
       # 8) Upload Trivy SARIF (frontend) vào GitHub Code Scanning
       - name: Upload Trivy SARIF (frontend) to GitHub
+        if: always()
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-frontend.sarif
@@ -107,6 +113,7 @@ jobs:
 
       # 8b) Upload Trivy SARIF (backend) vào GitHub Code Scanning
       - name: Upload Trivy SARIF (backend) to GitHub
+        if: always()
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-backend.sarif
@@ -114,9 +121,11 @@ jobs:
 
       # 9) Policy-as-code với Conftest trên SBOM
       - name: Setup Conftest
+        if: always()
         uses: princespaghetti/setup-conftest@v1
 
       - name: Run Conftest policies on SBOM
+        if: always()
         # Lưu output dạng table ra file để render vào HTML
         run: |
           conftest test \
@@ -127,6 +136,7 @@ jobs:
 
       # 10) Upload SBOM artifacts (giữ lại file JSON thô)
       - name: Upload SBOM artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sbom-spdx
@@ -136,6 +146,7 @@ jobs:
 
       # 11) Tạo static site cho các report (SBOM / Trivy / Conftest)
       - name: Prepare supply chain reports site
+        if: always()
         run: |
           mkdir -p site/sbom site/trivy site/policy
 
@@ -226,6 +237,7 @@ jobs:
 
       # 12) Upload static site làm Pages artifact
       - name: Upload supply chain reports Pages artifact
+        if: always()
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
@@ -235,7 +247,9 @@ jobs:
     name: Deploy supply chain reports to GitHub Pages
     needs: generate_sbom_and_scan
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # Luôn chạy sau generate_sbom_and_scan (kể cả khi job đó fail),
+    # nhưng chỉ khi workflow build/push ban đầu là success
+    if: always() && github.event.workflow_run.conclusion == 'success'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
