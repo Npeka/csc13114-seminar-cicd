@@ -11,6 +11,7 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
+    environment: production
     env:
       REGISTRY: docker.io
       IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
