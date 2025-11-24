@@ -5,7 +5,7 @@ export class UsersService {
   private localValue = 'initial-local-value';
 
   /**
-   * Return a static demo message object
+   * Return static demo message object
    */
   getMessage() {
     return { message: 'Hello from UsersService' };
