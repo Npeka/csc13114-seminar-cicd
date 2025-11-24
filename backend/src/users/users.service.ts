@@ -12,7 +12,7 @@ export class UsersService {
   }
 
   /**
-   * Echo back a provided message
+   * Echo back provided message
    */
   echo(msg?: string) {
     return { echoed: msg ?? null };
